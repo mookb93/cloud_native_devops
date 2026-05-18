@@ -1,0 +1,61 @@
+name: CI Minikube
+
+on:
+  pull_request:
+    branches:
+      - main
+      - develop
+  push:
+    branches:
+      - develop
+
+jobs:
+  build-and-deploy-to-minikube:
+    runs-on: ubuntu-latest
+    name: Build and deploy MyService to Minikube
+
+    steps:
+      - name: Checkout du code
+        uses: actions/checkout@v4
+
+      - name: Démarrer Minikube
+        uses: medyagh/setup-minikube@master
+
+      - name: Vérifier le cluster Kubernetes
+        run: |
+          kubectl get nodes
+          kubectl get pods -A
+
+      - name: Construire l'image Docker dans Minikube
+        run: |
+          export SHELL=/bin/bash
+          eval $(minikube docker-env)
+          docker build -t local/myservice:latest ./MyService
+          docker images
+
+      - name: Déployer l'application dans Minikube
+        run: |
+          kubectl apply -f k8s/deployment-service.yaml
+
+      - name: Forcer Kubernetes à utiliser l'image locale
+        run: |
+          kubectl set image deployment/myservice-deployment myservice=local/myservice:latest
+          kubectl rollout status deployment/myservice-deployment --timeout=120s
+
+      - name: Vérifier les pods et services
+        run: |
+          kubectl get pods
+          kubectl get services
+          minikube service list
+
+      - name: Tester le service Kubernetes
+        uses: nick-fields/retry@v3
+        with:
+          timeout_seconds: 10
+          max_attempts: 5
+          command: curl $(minikube service myservice-service --url)
+
+      - name: Afficher les logs de l'application
+        if: always()
+        run: |
+          kubectl logs -l app=myservice --tail=100
