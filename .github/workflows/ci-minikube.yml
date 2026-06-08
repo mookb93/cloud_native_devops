@@ -10,52 +10,58 @@ on:
       - develop
 
 jobs:
-  build-and-deploy-to-minikube:
+  job1:
     runs-on: ubuntu-latest
-    name: Build and deploy MyService to Minikube
+    name: build and deploy myservice to minikube
 
     steps:
-      - name: Checkout du code
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Démarrer Minikube
+      - name: Start Kubernetes Minikube
         uses: medyagh/setup-minikube@master
 
-      - name: Vérifier le cluster Kubernetes
+      - name: Try the Kubernetes cluster
         run: |
           kubectl get nodes
           kubectl get pods -A
 
-      - name: Construire l'image Docker dans Minikube
+      - name: Build Docker image inside Minikube
         run: |
           export SHELL=/bin/bash
-          eval $(minikube docker-env)
+          eval $(minikube -p minikube docker-env)
+
           docker build -t local/myservice:latest ./MyService
+
+          echo "Verifying Docker images:"
           docker images
 
-      - name: Déployer l'application dans Minikube
+      - name: Deploy the image to Minikube
         run: |
           kubectl apply -f k8s/deployment-service.yaml
 
-      - name: Forcer Kubernetes à utiliser l'image locale
+      - name: Update deployment with local image
         run: |
           kubectl set image deployment/myservice-deployment myservice=local/myservice:latest
           kubectl rollout status deployment/myservice-deployment --timeout=120s
 
-      - name: Vérifier les pods et services
+      - name: Get Kubernetes service URL
         run: |
+          kubectl wait --for=condition=Ready --timeout=120s pod -l app=myservice
           kubectl get pods
           kubectl get services
           minikube service list
+          minikube service myservice-service --url
+          echo "------------------ service ready ------------------"
 
-      - name: Tester le service Kubernetes
+      - name: Test Kubernetes service URL
         uses: nick-fields/retry@v3
         with:
           timeout_seconds: 10
           max_attempts: 5
           command: curl $(minikube service myservice-service --url)
 
-      - name: Afficher les logs de l'application
+      - name: Log Kubernetes pods
         if: always()
         run: |
           kubectl logs -l app=myservice --tail=100
